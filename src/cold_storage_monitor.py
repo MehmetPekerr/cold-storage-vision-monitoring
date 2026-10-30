@@ -24,7 +24,7 @@ Config example:
 
 get_data() output:
     {
-        "Door State":             str,    # "acik" | "kapali"
+        "Door State":             str,
         "Total Open Seconds":     float,
         "Total Open Minutes":     float,
         "Door Open Count":        int,
@@ -50,7 +50,6 @@ import numpy as np
 import torch
 from ultralytics import YOLO
 
-# Tür B modül gereksinimleri (GPU Lock + Model)
 try:
     from engine.shared_memory import GPU_LOCK  # type: ignore
 except (ImportError, ModuleNotFoundError):
@@ -83,12 +82,10 @@ except (ImportError, ValueError):
                 pass
 
 
-# ==================== CONFIG ====================
 
 STATE_DIR         = "state"
 SAVE_INTERVAL_SEC = 30
 
-# Varsayılan Geometri ve Eşik Değerleri
 DEFAULT_DOOR_PTS = [
     [311, 0],
     [308, 145],
@@ -103,13 +100,12 @@ DEFAULT_CORRIDOR_PTS = [
     [382, 148]
 ]
 
-COLOR_CLOSED = (0, 255, 0)      # Yeşil
-COLOR_OPEN   = (0, 255, 255)    # Sarı
-COLOR_ALERT  = (0, 0, 255)      # Kırmızı
-COLOR_FLOOR  = (255, 0, 0)      # Mavi
+COLOR_CLOSED = (0, 255, 0)
+COLOR_OPEN   = (0, 255, 255)
+COLOR_ALERT  = (0, 0, 255)
+COLOR_FLOOR  = (255, 0, 0)
 
 
-# ==================== MODULE ====================
 
 class DepoTakipModule(BaseModule):
 
@@ -137,7 +133,6 @@ class DepoTakipModule(BaseModule):
         self.floor_alert_sec           = floor_alert_sec
         self.show_panel                = show_panel
 
-        # Poligon Geometrileri
         door_list = door_polygon if door_polygon is not None else DEFAULT_DOOR_PTS
         corridor_list = corridor_polygon if corridor_polygon is not None else DEFAULT_CORRIDOR_PTS
         self._door_pts = np.array(door_list, np.int32)
@@ -145,7 +140,6 @@ class DepoTakipModule(BaseModule):
         self._dx, self._dy, self._dw, self._dh = cv2.boundingRect(self._door_pts)
         self._cx, self._cy, self._cw, self._ch = cv2.boundingRect(self._corridor_pts)
 
-        # Tür B Modellerini Yükle
         self._kapi_model = None
         self._zemin_model = None
         if YOLO is not None:
@@ -163,11 +157,9 @@ class DepoTakipModule(BaseModule):
                 except Exception as e:
                     print(f"[{self.name}] Zemin model load error: {e}")
 
-        # Referans Kareleri (Zemin Fark Analizi)
         self._ref_frame_kapali = None
         self._ref_frame_acik = None
 
-        # Kapı Durum Değişkenleri
         self._door_yolo_state = "kapali"
         self._door_state_change_time = _time.time()
         self._door_logical_state = "kapali"
@@ -176,7 +168,6 @@ class DepoTakipModule(BaseModule):
         self._total_open_seconds = 0.0
         self._door_open_alert = False
 
-        # Zemin Durum Değişkenleri
         self._floor_is_occupied = False
         self._floor_occupied_start_time = None
         self._floor_last_seen_occupied = None
@@ -184,17 +175,14 @@ class DepoTakipModule(BaseModule):
         self._floor_occupancy_pct = 0.0
         self._floor_alert = False
 
-        # Kalıcılık ve Günlük Sıfırlama
         self._last_reset_date = None
         self._last_save_time = 0.0
 
-        # draw() için durum saklayıcı (update çağrılmadan önce None)
         self._last_status = None
 
         self._load_state()
         print(f"✅ DepoTakipModule ready [{name}]")
 
-    # ==================== PERSISTENCE ====================
 
     def _state_path(self) -> str:
         return os.path.join(STATE_DIR, f"depo_takip_{self.name}.json")
@@ -247,7 +235,6 @@ class DepoTakipModule(BaseModule):
         except Exception as e:
             print(f"[{self.name}] State load error: {e} — starting fresh.")
 
-    # ==================== HELPERS ====================
 
     def _check_daily_reset(self):
         today = datetime.datetime.now().date()
@@ -276,7 +263,6 @@ class DepoTakipModule(BaseModule):
                 return None
             bgr = cv2.resize(bgr, (target_w, target_h))
             gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-            # Simetrik ayna düzeltmesi (koridor temiz zemin referansı)
             mid_x, start_x, end_x = 350, 249, 451
             if end_x <= target_w and start_x >= 0 and mid_x <= end_x:
                 gray[:, mid_x:end_x] = cv2.flip(gray[:, start_x:mid_x], 1)
@@ -285,28 +271,22 @@ class DepoTakipModule(BaseModule):
             print(f"[{self.name}] Ref image error ({filename}): {e}")
             return None
 
-    # ==================== UPDATE ====================
 
     def update(self, bboxes, class_ids, scores, object_ids, frame, class_names: dict):
         self._check_daily_reset()
         now = _time.time()
         h, w = frame.shape[:2]
 
-        # Referans kareleri ilk kare geldiğinde hazırla
         if self._ref_frame_kapali is None:
             self._ref_frame_kapali = self._prepare_ref_image(self.ref_kapali_path, h, w)
             self._ref_frame_acik   = self._prepare_ref_image(self.ref_acik_path, h, w)
 
-        # ---------------------------------------------------------
-        # 1. KAPI ANALİZİ (YOLO + 5 SN DEBOUNCE FİLTRESİ)
-        # ---------------------------------------------------------
         if self._kapi_model is not None and self._dw > 0 and self._dh > 0:
             door_mask = np.zeros((h, w), dtype=np.uint8)
             cv2.fillPoly(door_mask, [self._door_pts], 255)
             isolated_door = cv2.bitwise_and(frame, frame, mask=door_mask)
             cropped_door = isolated_door[self._dy:self._dy+self._dh, self._dx:self._dx+self._dw]
 
-            # Tür B: GPU_LOCK altında tek inference
             if torch is not None:
                 with GPU_LOCK, torch.no_grad():
                     results = self._kapi_model(cropped_door, verbose=False)
@@ -314,7 +294,6 @@ class DepoTakipModule(BaseModule):
                 with GPU_LOCK:
                     results = self._kapi_model(cropped_door, verbose=False)
 
-            # Lock dışında işle
             predicted_class = results[0].names[results[0].probs.top1]
             current_yolo = "acik" if predicted_class == "kapi_acik" else "kapali"
 
@@ -324,7 +303,6 @@ class DepoTakipModule(BaseModule):
 
             time_since_change = now - self._door_state_change_time
 
-            # 5 saniyelik onay filtresi
             if self._door_logical_state == "kapali":
                 if self._door_yolo_state == "acik" and time_since_change >= self.door_debounce_sec:
                     self._door_logical_state = "acik"
@@ -339,7 +317,6 @@ class DepoTakipModule(BaseModule):
                         self._door_logical_open_start = None
                     self._door_open_alert = False
 
-            # Kapı 60 sn açık kalma alarmı
             if self._door_logical_state == "acik" and self._door_logical_open_start:
                 if (now - self._door_logical_open_start) > self.door_open_timeout_sec:
                     self._door_open_alert = True
@@ -348,9 +325,6 @@ class DepoTakipModule(BaseModule):
             else:
                 self._door_open_alert = False
 
-        # ---------------------------------------------------------
-        # 2. ZEMİN ANALİZİ (YOLO + DOLULUK YÜZDESİ)
-        # ---------------------------------------------------------
         detected_floor_boxes = []
         if self._zemin_model is not None and self._cw > 0 and self._ch > 0:
             floor_mask = np.zeros((h, w), dtype=np.uint8)
@@ -358,7 +332,6 @@ class DepoTakipModule(BaseModule):
             isolated_floor = cv2.bitwise_and(frame, frame, mask=floor_mask)
             cropped_floor = isolated_floor[self._cy:self._cy+self._ch, self._cx:self._cx+self._cw]
 
-            # Tür B: GPU_LOCK altında tek inference
             if torch is not None:
                 with GPU_LOCK, torch.no_grad():
                     floor_results = self._zemin_model(cropped_floor, verbose=False)
@@ -366,7 +339,6 @@ class DepoTakipModule(BaseModule):
                 with GPU_LOCK:
                     floor_results = self._zemin_model(cropped_floor, verbose=False)
 
-            # Lock dışında işle
             floor_class_id = floor_results[0].probs.top1
             floor_class_name = floor_results[0].names[floor_class_id]
 
@@ -376,7 +348,6 @@ class DepoTakipModule(BaseModule):
                     self._floor_is_occupied = True
                     self._floor_occupied_start_time = now
 
-                # Doluluk Yüzdesi Hesaplama (Fark Analizi)
                 active_ref = (self._ref_frame_acik
                               if (self._door_logical_state == "acik" and self._ref_frame_acik is not None)
                               else self._ref_frame_kapali)
@@ -404,9 +375,8 @@ class DepoTakipModule(BaseModule):
                     else:
                         self._floor_occupancy_pct = 0.0
                 else:
-                    self._floor_occupancy_pct = 50.0  # Referans yoksa gösterge
+                    self._floor_occupancy_pct = 50.0
             else:
-                # 20 saniye tolerans (geçici boşluklarda sıfırlanmaz)
                 if self._floor_is_occupied:
                     if self._floor_last_seen_occupied and (now - self._floor_last_seen_occupied) > self.floor_empty_tolerance_sec:
                         self._floor_is_occupied = False
@@ -416,7 +386,6 @@ class DepoTakipModule(BaseModule):
                         self._floor_occupancy_pct = 0.0
                         self._floor_alert = False
 
-            # Zemin sürekli 1 saat dolu kalırsa alarm
             if self._floor_is_occupied and self._floor_occupied_start_time:
                 elapsed_floor = now - self._floor_occupied_start_time
                 if elapsed_floor >= self.floor_alert_sec:
@@ -426,7 +395,6 @@ class DepoTakipModule(BaseModule):
             else:
                 self._floor_alert = False
 
-        # draw() için son durumu sakla
         self._last_status = {
             "door_logical_state": self._door_logical_state,
             "door_open_alert":    self._door_open_alert,
@@ -436,12 +404,10 @@ class DepoTakipModule(BaseModule):
             "floor_boxes":        detected_floor_boxes,
         }
 
-        # Periyodik State Kaydı (SAVE_INTERVAL_SEC)
         if now - self._last_save_time >= SAVE_INTERVAL_SEC:
             self._save_state()
             self._last_save_time = now
 
-    # ==================== DATA ====================
 
     def get_data(self) -> dict:
         now = _time.time()
@@ -465,13 +431,11 @@ class DepoTakipModule(BaseModule):
             "floor_occupied_alert":   self._floor_alert,
         }
 
-    # ==================== DRAW ====================
 
     def draw(self, frame):
         if self._last_status is None:
             return frame
 
-        # 1. Kapı Alanı ve Durumu
         door_state = self._last_status["door_logical_state"]
         door_color = COLOR_OPEN if door_state == "acik" else COLOR_CLOSED
         door_text = "Open" if door_state == "acik" else "Closed"
@@ -479,10 +443,8 @@ class DepoTakipModule(BaseModule):
         cv2.putText(frame, door_text, (self._dx + self._dw + 10, self._dy + 70),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.65, door_color, 2, cv2.LINE_AA)
 
-        # 2. Zemin / Koridor Alanı ve Doluluğu
         cv2.polylines(frame, [self._corridor_pts], isClosed=True, color=COLOR_FLOOR, thickness=2)
 
-        # Dolu olan zemin nesnelerini kırmızı kutu ile çiz
         if self._last_status.get("floor_is_occupied"):
             for bx, by, bw, bh in self._last_status.get("floor_boxes", []):
                 cv2.rectangle(frame, (bx, by), (bx + bw, by + bh), COLOR_ALERT, 2)
@@ -495,7 +457,6 @@ class DepoTakipModule(BaseModule):
         cv2.putText(frame, "Occupied", (floor_text_x, floor_text_y + 22),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.60, COLOR_FLOOR, 2, cv2.LINE_AA)
 
-        # 3. Bilgi Paneli ve Alarmlar (show_panel=True ise)
         if self.show_panel:
             frame = self._draw_panel(frame)
 
@@ -507,19 +468,16 @@ class DepoTakipModule(BaseModule):
         cv2.putText(frame, time_str, (18, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.65, COLOR_ALERT, 2, cv2.LINE_AA)
 
-        # Kapı 60 sn açık alarmı
         if self._last_status.get("door_open_alert"):
             cv2.putText(frame, "WARNING: DOOR OPEN FOR OVER 60 SECONDS!", (15, 58),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, COLOR_ALERT, 2, cv2.LINE_AA)
 
-        # Zemin 1 saat dolu alarmı
         if self._last_status.get("floor_alert"):
             cv2.putText(frame, "WARNING: FLOOR CONTINUOUSLY OCCUPIED > 1 HOUR!", (15, 82),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, COLOR_ALERT, 2, cv2.LINE_AA)
 
         return frame
 
-    # ==================== SHUTDOWN ====================
 
     def shutdown(self):
         now = _time.time()

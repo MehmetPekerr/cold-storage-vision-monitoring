@@ -18,7 +18,6 @@ def draw_frame(index: int) -> np.ndarray:
     width, height = SIZE
     frame = np.full((height, width, 3), (38, 45, 54), dtype=np.uint8)
 
-    # Cartoon cold-room walls and floor.
     cv2.rectangle(frame, (40, 35), (width - 40, height - 45), (88, 98, 108), -1)
     cv2.line(frame, (40, 230), (width - 40, 230), (170, 180, 190), 2)
     cv2.rectangle(frame, (90, 75), (230, 230), (150, 160, 170), 3)

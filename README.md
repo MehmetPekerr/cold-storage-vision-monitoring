@@ -23,12 +23,12 @@ The public demo intentionally uses a lightweight synthetic detector instead of t
 ```text
 .
 ├── demo/
-│   └── generate_synthetic_demo.py   # Creates cartoon-style frames and an annotated demo video
+│   └── generate_synthetic_demo.py   Creates cartoon-style frames and an annotated demo video
 ├── src/
-│   ├── base.py                      # Pipeline module interface
-│   └── cold_storage_monitor.py      # Production-oriented monitoring module
+│   ├── base.py                      Pipeline module interface
+│   └── cold_storage_monitor.py      Production-oriented monitoring module
 ├── data/
-│   └── synthetic/                   # Generated locally; ignored by Git
+│   └── synthetic/                   Generated locally; ignored by Git
 ├── .gitignore
 ├── requirements.txt
 └── README.md

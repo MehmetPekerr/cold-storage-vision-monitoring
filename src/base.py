@@ -1,4 +1,3 @@
-# engine/modules/base.py — BaseModule arayüzü
 
 class BaseModule:
     def update(self, bboxes, class_ids, scores, object_ids, frame, class_names: dict):
@@ -8,10 +7,10 @@ class BaseModule:
         raise NotImplementedError
 
     def draw(self, frame):
-        return frame      # varsayılan: frame'e dokunmaz
+        return frame
 
     def reset(self):
-        pass              # isteğe bağlı
+        pass
 
     def shutdown(self):
-        pass              # isteğe bağlı
+        pass
