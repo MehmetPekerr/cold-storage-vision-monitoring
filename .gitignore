@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Generated demo output
+data/synthetic/*
+!data/synthetic/.gitkeep
+!data/synthetic/synthetic_frame_*.png
+
+# Local runtime state and reports
+state/
+reports/
+*.log
+
+# Private deployment artifacts
+*.pt
+*.onnx
+*.engine
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.json
+!data/synthetic/synthetic_frame_*.png
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+config.local.*
+secrets/
+
+# IDE
+.vscode/
